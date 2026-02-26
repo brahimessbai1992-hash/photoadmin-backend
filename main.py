@@ -232,3 +232,70 @@ async def biometric_preview(
     buf = io.BytesIO()
     photo.save(buf, format="JPEG", quality=85)
     return Response(content=buf.getvalue(), media_type="image/jpeg")
+# ═══════════════════════════════════════════════════════════════
+#  أضف هذا الكود في نهاية ملف main.py الموجود على Railway
+# ═══════════════════════════════════════════════════════════════
+
+# في أعلى الملف (مع الـ imports الموجودة) أضف:
+# import qrcode
+# from family_card_api import generate_family_card   ← إذا وضعت الكود في ملف منفصل
+# أو انسخ محتوى family_card_api.py مباشرة في main.py
+
+@app.post("/api/family-card")
+async def family_card_endpoint(
+    photo:               UploadFile = File(...),
+    husband_name_ar:     str = Form(""),
+    husband_name_fr:     str = Form(""),
+    husband_cnie:        str = Form(""),
+    husband_birth_date:  str = Form(""),
+    husband_birth_place: str = Form(""),
+    husband_reg_num:     str = Form(""),
+    wife_name_ar:        str = Form(""),
+    wife_name_fr:        str = Form(""),
+    wife_cnie:           str = Form(""),
+    wife_birth_date:     str = Form(""),
+    wife_birth_place:    str = Form(""),
+    wife_reg_num:        str = Form(""),
+    phone:               str = Form(""),
+    address_ar:          str = Form(""),
+    address_fr:          str = Form(""),
+    reg_num_1:           str = Form(""),
+    reg_num_2:           str = Form(""),
+    card_ref:            str = Form(""),
+    google_drive_url:    str = Form(""),
+):
+    """توليد البطاقة العائلية كصورة JPG"""
+
+    SVG_TEMPLATE = os.path.join(os.path.dirname(__file__), "family_card_template.svg")
+    if not os.path.exists(SVG_TEMPLATE):
+        raise HTTPException(500, "ملف القالب غير موجود على السيرفر")
+
+    jpg_bytes = await generate_family_card(
+        photo=photo,
+        husband_name_ar=husband_name_ar,
+        husband_name_fr=husband_name_fr,
+        husband_cnie=husband_cnie,
+        husband_birth_date=husband_birth_date,
+        husband_birth_place=husband_birth_place,
+        husband_reg_num=husband_reg_num,
+        wife_name_ar=wife_name_ar,
+        wife_name_fr=wife_name_fr,
+        wife_cnie=wife_cnie,
+        wife_birth_date=wife_birth_date,
+        wife_birth_place=wife_birth_place,
+        wife_reg_num=wife_reg_num,
+        phone=phone,
+        address_ar=address_ar,
+        address_fr=address_fr,
+        reg_num_1=reg_num_1,
+        reg_num_2=reg_num_2,
+        card_ref=card_ref,
+        google_drive_url=google_drive_url,
+        svg_template_path=SVG_TEMPLATE,
+    )
+
+    return Response(
+        content=jpg_bytes,
+        media_type="image/jpeg",
+        headers={"Content-Disposition": 'attachment; filename="family_card.jpg"'},
+    )
