@@ -5,11 +5,13 @@ import asyncio
 import requests
 import cv2
 import numpy as np
+import qrcode
 from PIL import Image
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 import fal_client
+from family_card_api import generate_family_card
 
 app = FastAPI(title="PhotoAdmin API", version="2.0.0")
 
@@ -180,27 +182,21 @@ async def biometric_photo(
     raw = await file.read()
     if len(raw) > 15 * 1024 * 1024: raise HTTPException(400, "حجم الصورة أكبر من 15MB")
 
-    # 1. إزالة الخلفية
     cutout = await fal_remove_bg(raw)
-
-    # 2. إضافة الخلفية
     bg = Image.new("RGBA", cutout.size, (*BG_COLORS[bg_color], 255))
     final = Image.alpha_composite(bg, cutout).convert("RGB")
 
-    # 3. القص الذكي
     size = PHOTO_SIZES[doc_type]
     tw = mm_to_px(size["width_mm"], dpi)
     th = mm_to_px(size["height_mm"], dpi)
     photo = face_aware_crop(final, tw, th, zoom=zoom)
 
-    # 4. Upscale اختياري
     if upscale:
         buf_tmp = io.BytesIO()
         photo.save(buf_tmp, format="JPEG", quality=95)
         upscaled = await fal_upscale(buf_tmp.getvalue())
         photo = Image.open(io.BytesIO(upscaled)).convert("RGB").resize((tw, th), Image.LANCZOS)
 
-    # 5. لوحة الصور
     lyt = LAYOUTS[layout]
     sheet = build_sheet(photo, lyt["cols"], lyt["rows"], mm_to_px(3, dpi))
 
@@ -232,14 +228,7 @@ async def biometric_preview(
     buf = io.BytesIO()
     photo.save(buf, format="JPEG", quality=85)
     return Response(content=buf.getvalue(), media_type="image/jpeg")
-# ═══════════════════════════════════════════════════════════════
-#  أضف هذا الكود في نهاية ملف main.py الموجود على Railway
-# ═══════════════════════════════════════════════════════════════
 
-# في أعلى الملف (مع الـ imports الموجودة) أضف:
-# import qrcode
-# from family_card_api import generate_family_card   ← إذا وضعت الكود في ملف منفصل
-# أو انسخ محتوى family_card_api.py مباشرة في main.py
 
 @app.post("/api/family-card")
 async def family_card_endpoint(
@@ -264,8 +253,6 @@ async def family_card_endpoint(
     card_ref:            str = Form(""),
     google_drive_url:    str = Form(""),
 ):
-    """توليد البطاقة العائلية كصورة JPG"""
-
     SVG_TEMPLATE = os.path.join(os.path.dirname(__file__), "family_card_template.svg")
     if not os.path.exists(SVG_TEMPLATE):
         raise HTTPException(500, "ملف القالب غير موجود على السيرفر")
