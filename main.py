@@ -46,7 +46,7 @@ LAYOUTS = {
 
 # معايير ICAO
 FACE_HEIGHT_RATIO = 0.75   # الوجه يشغل 75% من ارتفاع الصورة
-HEADROOM_RATIO    = 0.10   # 10% مسافة فوق الرأس
+HEADROOM_RATIO    = 0.04   # 10% مسافة فوق الرأس
 
 
 def mm_to_px(mm, dpi):
@@ -351,4 +351,43 @@ async def family_card_endpoint(
         content=jpg_bytes,
         media_type="image/jpeg",
         headers={"Content-Disposition": 'attachment; filename="family_card.jpg"'},
+    )
+
+
+# ══════════════════════════════════════════════════════════════
+#  بطاقة CNSS — AMO TADAMON
+# ══════════════════════════════════════════════════════════════
+from cnss_card_api import generate_cnss_card
+
+@app.post("/api/cnss-card")
+async def cnss_card_endpoint(
+    reg_num:    str = Form(""),   # رقم التسجيل
+    nom_ar:     str = Form(""),   # الاسم العائلي عربي
+    prenom_ar:  str = Form(""),   # الاسم الشخصي عربي
+    birth_date: str = Form(""),   # تاريخ الازدياد
+    cin:        str = Form(""),   # رقم البطاقة الوطنية
+    reg_date:   str = Form(""),   # تاريخ التسجيل
+    nom_fr:     str = Form(""),   # Nom français
+    prenom_fr:  str = Form(""),   # Prénom français
+):
+    BG_PATH = os.path.join(os.path.dirname(__file__), "AMO_IAM_PNG.png")
+    if not os.path.exists(BG_PATH):
+        raise HTTPException(500, "ملف خلفية CNSS غير موجود على السيرفر")
+
+    jpg_bytes = generate_cnss_card(
+        reg_num=reg_num,
+        nom_ar=nom_ar,
+        prenom_ar=prenom_ar,
+        birth_date=birth_date,
+        cin=cin,
+        reg_date=reg_date,
+        nom_fr=nom_fr,
+        prenom_fr=prenom_fr,
+        bg_path=BG_PATH,
+    )
+
+    return Response(
+        content=jpg_bytes,
+        media_type="image/jpeg",
+        headers={"Content-Disposition": 'attachment; filename="cnss_card.jpg"'},
     )
