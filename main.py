@@ -45,8 +45,8 @@ LAYOUTS = {
 }
 
 # معايير ICAO
-FACE_HEIGHT_RATIO = 0.75
-HEADROOM_RATIO    = 0.10
+FACE_HEIGHT_RATIO = 0.75   # الوجه يشغل 75% من ارتفاع الصورة
+HEADROOM_RATIO    = 0.10   # 10% مسافة فوق الرأس
 
 
 def mm_to_px(mm, dpi):
@@ -54,45 +54,32 @@ def mm_to_px(mm, dpi):
 
 
 def detect_face(img_rgb):
-    """كشف الوجه بثلاث محاولات متتالية للحصول على أفضل نتيجة"""
+    """كشف الوجه بثلاث محاولات متتالية"""
     gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
     gray = cv2.equalizeHist(gray)
 
-    # المحاولة 1: haarcascade_frontalface_alt2 (أدق)
-    cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_alt2.xml"
-    )
-    faces = cascade.detectMultiScale(
-        gray, scaleFactor=1.05, minNeighbors=4, minSize=(60, 60)
-    )
-    if len(faces) > 0:
-        return sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
-
-    # المحاولة 2: haarcascade_frontalface_default
-    cascade2 = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-    faces = cascade2.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=3, minSize=(50, 50)
-    )
-    if len(faces) > 0:
-        return sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
-
-    # المحاولة 3: LBP cascade (أسرع وأحيانًا يكشف ما لا يكشفه Haar)
-    cascade3 = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_alt_tree.xml"
-    )
-    faces = cascade3.detectMultiScale(
-        gray, scaleFactor=1.05, minNeighbors=3, minSize=(50, 50)
-    )
-    if len(faces) > 0:
-        return sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
+    for cascade_name in [
+        "haarcascade_frontalface_alt2.xml",
+        "haarcascade_frontalface_default.xml",
+        "haarcascade_frontalface_alt_tree.xml",
+    ]:
+        cascade = cv2.CascadeClassifier(cv2.data.haarcascades + cascade_name)
+        faces = cascade.detectMultiScale(
+            gray, scaleFactor=1.05, minNeighbors=3, minSize=(50, 50)
+        )
+        if len(faces) > 0:
+            return sorted(faces, key=lambda f: f[2] * f[3], reverse=True)[0]
 
     return None
 
 
 def face_aware_crop(img, target_w, target_h, zoom=1.0):
-    """قص ذكي يحقق معايير ICAO"""
+    """
+    القص الذكي — zoom يعمل بشكل صحيح:
+      zoom=1.0 → الوجه يشغل 75% (معيار ICAO)
+      zoom>1.0 → اقتراب أكثر (الوجه يشغل مساحة أكبر)
+      zoom<1.0 → ابتعاد أكثر (يظهر الجسم أكثر)
+    """
     img_rgb = np.array(img.convert("RGB"))
     ih, iw  = img_rgb.shape[:2]
     face    = detect_face(img_rgb)
@@ -101,8 +88,11 @@ def face_aware_crop(img, target_w, target_h, zoom=1.0):
         fx, fy, fw, fh = face
         face_cx = fx + fw // 2
 
-        # الارتفاع الكلي للمحصول بناءً على نسبة الوجه المطلوبة
-        crop_h = int((fh / FACE_HEIGHT_RATIO) / zoom)
+        # ── الإصلاح: zoom يؤثر على حجم الإطار المحيط بالوجه ──
+        # zoom كبير = إطار صغير = الوجه يملأ الصورة أكثر
+        # zoom صغير = إطار كبير = يظهر المزيد من الجسم
+        base_crop_h = int(fh / FACE_HEIGHT_RATIO)
+        crop_h = int(base_crop_h / zoom)          # ← الإصلاح هنا
         crop_w = int(crop_h * target_w / target_h)
 
         headroom  = int(crop_h * HEADROOM_RATIO)
@@ -125,6 +115,7 @@ def face_aware_crop(img, target_w, target_h, zoom=1.0):
         crop_left = max(0, crop_left)
         cropped   = img_rgb[crop_top:crop_top+crop_h, crop_left:crop_left+crop_w]
     else:
+        # بدون وجه: قص مركزي بالنسبة الصحيحة
         target_ratio = target_w / target_h
         src_ratio    = iw / ih
         if src_ratio > target_ratio:
@@ -142,11 +133,11 @@ def face_aware_crop(img, target_w, target_h, zoom=1.0):
 
 
 def enhance_photo(img: Image.Image) -> Image.Image:
-    """تحسين السطوع والتباين والحدة — يعطي مظهر الاستوديو الاحترافي"""
-    img = ImageEnhance.Brightness(img).enhance(1.08)   # سطوع +8%
-    img = ImageEnhance.Contrast(img).enhance(1.12)     # تباين +12%
-    img = ImageEnhance.Color(img).enhance(1.05)        # ألوان +5%
-    img = ImageEnhance.Sharpness(img).enhance(1.8)     # حدة
+    """تحسين الجودة: سطوع، تباين، حدة — مظهر الاستوديو الاحترافي"""
+    img = ImageEnhance.Brightness(img).enhance(1.08)
+    img = ImageEnhance.Contrast(img).enhance(1.12)
+    img = ImageEnhance.Color(img).enhance(1.05)
+    img = ImageEnhance.Sharpness(img).enhance(1.8)
     img = img.filter(ImageFilter.UnsharpMask(radius=1.2, percent=120, threshold=2))
     return img
 
@@ -185,7 +176,7 @@ async def fal_remove_bg(image_bytes):
 
 
 async def fal_upscale(image_bytes: bytes, target_w: int, target_h: int) -> Image.Image:
-    """رفع الدقة إلى 4K مع الحفاظ التام على هوية الشخص"""
+    """رفع الدقة إلى 4K"""
     b64      = base64.b64encode(image_bytes).decode()
     data_uri = f"data:image/jpeg;base64,{b64}"
     PROMPT = (
@@ -208,10 +199,10 @@ async def fal_upscale(image_bytes: bytes, target_w: int, target_h: int) -> Image
         )
         resp = requests.get(result["image"]["url"], timeout=60)
         resp.raise_for_status()
-        upscaled = Image.open(io.BytesIO(resp.content)).convert("RGB")
-        return upscaled.resize((target_w, target_h), Image.LANCZOS)
+        return Image.open(io.BytesIO(resp.content)).convert("RGB").resize(
+            (target_w, target_h), Image.LANCZOS
+        )
     except Exception:
-        # عند الفشل: أرجع الصورة الأصلية بحجمها الصحيح
         return Image.open(io.BytesIO(image_bytes)).convert("RGB").resize(
             (target_w, target_h), Image.LANCZOS
         )
@@ -226,11 +217,7 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    return {
-        "status": "ok",
-        "fal_configured": bool(os.getenv("FAL_KEY")),
-        "version": "3.0.0",
-    }
+    return {"status": "ok", "fal_configured": bool(os.getenv("FAL_KEY")), "version": "3.0.0"}
 
 
 @app.post("/api/biometric-photo")
@@ -255,26 +242,26 @@ async def biometric_photo(
     # 1. إزالة الخلفية
     cutout = await fal_remove_bg(raw)
 
-    # 2. إضافة الخلفية المختارة
+    # 2. إضافة الخلفية
     bg    = Image.new("RGBA", cutout.size, (*BG_COLORS[bg_color], 255))
     final = Image.alpha_composite(bg, cutout).convert("RGB")
 
     # 3. القص الذكي
-    size = PHOTO_SIZES[doc_type]
-    tw   = mm_to_px(size["width_mm"],  dpi)
-    th   = mm_to_px(size["height_mm"], dpi)
+    size  = PHOTO_SIZES[doc_type]
+    tw    = mm_to_px(size["width_mm"],  dpi)
+    th    = mm_to_px(size["height_mm"], dpi)
     photo = face_aware_crop(final, tw, th, zoom=zoom)
 
-    # 4. تحسين الجودة (سطوع، تباين، حدة)
+    # 4. تحسين الجودة
     photo = enhance_photo(photo)
 
-    # 5. رفع الدقة 4K — دائماً مفعّل عند DPI=300 أو 600
+    # 5. رفع الدقة 4K
     if upscale or dpi >= 300:
         buf_tmp = io.BytesIO()
         photo.save(buf_tmp, format="JPEG", quality=97)
         photo = await fal_upscale(buf_tmp.getvalue(), tw, th)
 
-    # 6. بناء لوحة الطباعة
+    # 6. لوحة الطباعة
     lyt   = LAYOUTS[layout]
     sheet = build_sheet(photo, lyt["cols"], lyt["rows"], mm_to_px(3, dpi))
 
@@ -295,7 +282,6 @@ async def biometric_preview(
     bg_color: str   = Form("gray"),
     zoom:     float = Form(1.0),
 ):
-    """معاينة سريعة بدون upscale"""
     raw    = await file.read()
     cutout = await fal_remove_bg(raw)
     bg     = Image.new("RGBA", cutout.size, (*BG_COLORS[bg_color], 255))
